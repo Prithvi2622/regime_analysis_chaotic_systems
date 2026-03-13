@@ -1,0 +1,48 @@
+# Configuration for Nonlinear Market Dynamics Pipeline
+
+data:
+  raw_path: "data/raw/market_data.csv" # Or parquet
+  processed_path: "data/processed/clean_data.parquet"
+  target_col: "price"
+  time_col: "time"
+  test_split: 0.2
+
+preprocessing:
+  denoise_method: "wavelet" # or "moving_average"
+  window_size: 10
+  wavelet_name: "db4"
+  wavelet_level: 2
+
+phase_space:
+  tau_max: 50 # Max delay to search
+  m_max: 10 # Max embedding dimension to search
+  n_neighbors: 10
+
+regime_detection:
+  n_components: 3 # Number of hidden states for HMM
+  hmm_covariance_type: "full"
+  hmm_n_iter: 100
+  cpd_model: "l2" # Ruptures cost function
+  cpd_penalty: 10
+
+dynamics:
+  sindy:
+    polynomial_degree: 3
+    threshold: 0.1
+    alpha: 0.05
+  
+  neural_ode:
+    hidden_dim: 64
+    num_layers: 3
+    activation: "tanh"
+    batch_time: 10
+    batch_size: 128
+    epochs: 1000
+    lr: 0.001
+    test_freq: 50
+    solver: "rk4" # or dopri5
+
+wandb:
+  project: "nonlinear_market_dynamics"
+  entity: null
+  mode: "offline" # Change to online for actual logging

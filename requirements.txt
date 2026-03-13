@@ -1,0 +1,20 @@
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+plotly>=5.14.0
+# Machine Learning
+torch>=2.0.0
+torchdiffeq>=0.2.3
+# Chaos & Phase Space
+nolitsa>=0.1
+nolds>=0.5.2
+pyunicorn>=0.6.1
+# Regime Detection
+hmmlearn>=0.3.0
+ruptures>=1.1.8
+# Sparse System Identification
+pysindy>=1.7.5
+# Experiment Tracking
+wandb>=0.15.0
+PyWavelets>=1.4.1
