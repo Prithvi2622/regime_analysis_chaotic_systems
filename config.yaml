@@ -17,6 +17,30 @@ phase_space:
   tau_max: 50 # Max delay to search
   m_max: 10 # Max embedding dimension to search
   n_neighbors: 10
+  tau: 5 # Initial Takens tau
+  embedding_dim: 4 # Initial Takens m
+
+ou_process:
+  alpha: 5
+  mu: 48.22
+  sigma: 5
+  x0: 62.24
+
+risk_aversion:
+  gamma_values: [1, 2.5, 5, 10]
+
+time_horizons:
+  values: [50, 150]
+
+convenience_yield:
+  values: [0.08, 0.05, -0.08]
+
+regime_transition:
+  matrix: 
+    - [0.75, 0.25, 0, 0]
+    - [0.25, 0.75, 0, 0]
+    - [0, 0, 0.25, 0.7]
+    - [0, 0, 0.75, 0.25]
 
 regime_detection:
   n_components: 3 # Number of hidden states for HMM

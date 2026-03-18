@@ -7,7 +7,6 @@ plotly>=5.14.0
 torch>=2.0.0
 torchdiffeq>=0.2.3
 # Chaos & Phase Space
-nolitsa>=0.1
 nolds>=0.5.2
 pyunicorn>=0.6.1
 # Regime Detection
@@ -18,3 +17,7 @@ pysindy>=1.7.5
 # Experiment Tracking
 wandb>=0.15.0
 PyWavelets>=1.4.1
+# Phase 2 additions
+scikit-learn
+deepxde
+pyyaml

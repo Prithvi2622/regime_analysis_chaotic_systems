@@ -12,9 +12,11 @@ class ODEFunc(nn.Module):
     Neural ODE function parameterizing the derivative dX/dt.
     Network architecture: Linear -> Tanh -> Linear -> Tanh -> Linear
     """
-    def __init__(self, input_dim: int, hidden_dim: int = 64):
+    def __init__(self, input_dim: int, hidden_dim: int = 64, device: str = None):
         super(ODEFunc, self).__init__()
         
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.Tanh(),
@@ -38,12 +40,15 @@ class NeuralODE(nn.Module):
     """
     Neural ODE wrapper.
     """
-    def __init__(self, func: ODEFunc, method: str = 'rk4'):
+    def __init__(self, func: ODEFunc, method: str = 'rk4', device: str = None):
         super(NeuralODE, self).__init__()
         if not HAS_TORCHDIFFEQ:
             raise ImportError("torchdiffeq is required to use NeuralODE.")
         self.func = func
         self.method = method
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)
+        self.func.to(self.device)
         
     def forward(self, x0: torch.Tensor, t: torch.Tensor):
         """

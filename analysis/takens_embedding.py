@@ -1,10 +1,18 @@
 import numpy as np
+import os
+import warnings
+
+try:
+    import nolitsa
+except ImportError:
+    print("Installing nolitsa from GitHub...")
+    os.system("pip install git+https://github.com/manu-mannattil/nolitsa.git")
+
 try:
     from nolitsa import delay, dimension
     HAS_NOLITSA = True
 except ImportError:
     HAS_NOLITSA = False
-    import warnings
     warnings.warn("nolitsa not installed. Some Takens embedding functions will use fallbacks.")
 
 def compute_delay_mutual_information(series: np.ndarray, tau_max: int = 50, bins: int = 50) -> int:
@@ -70,3 +78,12 @@ def takens_embedding(series: np.ndarray, tau: int, m: int) -> np.ndarray:
         embedded[:, i] = series[i * tau : n - max_delay + i * tau]
     
     return embedded
+
+# Optional parameter estimation aliases
+def estimate_tau(data: np.ndarray, tau_max: int = 50, bins: int = 50) -> int:
+    """Estimates optimal time delay (tau) using mutual information."""
+    return compute_delay_mutual_information(data, tau_max, bins)
+
+def estimate_embedding_dim(data: np.ndarray, tau: int, m_max: int = 10) -> int:
+    """Estimates optimal embedding dimension (m) using false nearest neighbors."""
+    return false_nearest_neighbors(data, tau, m_max)

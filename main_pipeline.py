@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import warnings
 import wandb
+import argparse
 from pathlib import Path
 
 # Setup logging
@@ -15,7 +16,13 @@ warnings.filterwarnings('ignore')
 # Import our modules
 from utils.data_loader import load_data
 from utils.preprocessing import compute_log_returns, normalize_series, denoise_signal
-from analysis.takens_embedding import compute_delay_mutual_information, false_nearest_neighbors, takens_embedding
+from analysis.takens_embedding import (
+    compute_delay_mutual_information, 
+    false_nearest_neighbors, 
+    takens_embedding,
+    estimate_tau,
+    estimate_embedding_dim
+)
 from analysis.chaos_metrics import get_chaos_metrics
 from analysis.lyapunov import compute_largest_lyapunov_exponent
 from regime_detection.hmm_model import train_hmm, predict_regimes
@@ -48,7 +55,32 @@ def create_synthetic_data(file_path: str):
     df.to_csv(file_path, index=False)
     return file_path
 
+def simulate_ou(alpha=5, mu=48.22, sigma=5, x0=62.24, n=5000):
+    """Simulates an Ornstein-Uhlenbeck process for fast synthetic testing."""
+    logger.info(f"Simulating OU Process (alpha={alpha}, mu={mu}, sigma={sigma}, x0={x0})")
+    dt = 0.01
+    x = np.zeros(n)
+    x[0] = x0
+    for i in range(1, n):
+        x[i] = x[i-1] + alpha*(mu - x[i-1])*dt + sigma*np.sqrt(dt)*np.random.randn()
+    
+    t = np.arange(0, n*dt, dt)
+    return pd.DataFrame({'time': t, 'price': x})
+
+def get_args():
+    parser = argparse.ArgumentParser(description="Nonlinear Market Dynamics Pipeline")
+    parser.add_argument('--test_mode', type=str, choices=['synthetic', 'real'], default=None, 
+                        help="Run in test mode with fast data (synthetic OU or short real dataset).")
+    parser.add_argument('--gamma', type=float, default=None, help="Override risk aversion gamma.")
+    parser.add_argument('--convenience_yield', type=float, default=None, help="Override convenience yield.")
+    parser.add_argument('--tau', type=int, default=None, help="Override Takens delay tau.")
+    parser.add_argument('--embedding_dim', type=int, default=None, help="Override Takens embedding dimension m.")
+    return parser.parse_args()
+
 def main():
+    args = get_args()
+    
+    # 1. Load config
     # 1. Load config
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
@@ -57,16 +89,27 @@ def main():
     if use_wandb:
         wandb.init(project=config['wandb']['project'], config=config)
         
-    # Generate data if not exists
-    raw_path = config['data']['raw_path']
-    if not Path(raw_path).exists():
-        create_synthetic_data(raw_path)
+    # Data Loading / Processing based on arguments
+    if args.test_mode == 'synthetic':
+        df = simulate_ou()
+        logger.info("Using synthetic OU data for testing.")
+    elif args.test_mode == 'real':
+        logger.info("Downloading real Brent daily data for testing (first 5000 points)...")
+        df = pd.read_csv("https://raw.githubusercontent.com/datasets/oil-prices/master/data/brent-daily.csv")
+        df = df.rename(columns={'Date': 'time', 'Price': 'price'})
+        df = df.dropna()
+        df = df.head(5000).reset_index(drop=True)
+    else:
+        # Generate data if not exists
+        raw_path = config['data']['raw_path']
+        if not Path(raw_path).exists():
+            create_synthetic_data(raw_path)
 
-    # 2. Data Loading
-    df = load_data(raw_path, time_col=config['data']['time_col'])
+        # 2. Data Loading
+        df = load_data(raw_path, time_col=config['data']['time_col'])
     
     # 3. Preprocessing
-    df = compute_log_returns(df, price_col=config['data']['target_col'])
+    df = compute_log_returns(df, price_col=config['data'].get('target_col', 'price'))
     signal = df['returns'].values
     
     # Denoise
@@ -79,9 +122,19 @@ def main():
     tau_max = config['phase_space']['tau_max']
     m_max = config['phase_space']['m_max']
     
-    tau = compute_delay_mutual_information(normalized_signal, tau_max=tau_max)
-    m = false_nearest_neighbors(normalized_signal, tau=tau, m_max=m_max)
-    logger.info(f"Estimated parameters: delay (tau) = {tau}, embedding dimension (m) = {m}")
+    # Safely load config parameters, fallback to estimation if not provided
+    # CLI args override config args, which override estimation
+    tau = args.tau if args.tau is not None else config['phase_space'].get('tau')
+    if tau is None:
+        logger.info("Tau not provided, estimating via Mutual Information...")
+        tau = estimate_tau(normalized_signal, tau_max=tau_max)
+        
+    m = args.embedding_dim if args.embedding_dim is not None else config['phase_space'].get('embedding_dim')
+    if m is None:
+        logger.info("Embedding dim not provided, estimating via False Nearest Neighbors...")
+        m = estimate_embedding_dim(normalized_signal, tau=tau, m_max=m_max)
+        
+    logger.info(f"Using parameters: delay (tau) = {tau}, embedding dimension (m) = {m}")
     
     embedded = takens_embedding(normalized_signal, tau=tau, m=m)
     logger.info(f"Phase space reconstructed. Shape: {embedded.shape}")
@@ -105,20 +158,23 @@ def main():
     logger.info("Detecting change points (PELT)...")
     cps = detect_changepoints_pelt(series_aligned, model_type=config['regime_detection']['cpd_model'])
     
+    # Kaggle Compatibility
+    output_dir = "/kaggle/working" if Path("/kaggle/working").exists() else "outputs"
+    Path(output_dir).mkdir(exist_ok=True)
+    
     # 7. Visualization
-    Path("outputs").mkdir(exist_ok=True)
-    plot_2d_attractor(embedded, save_path="outputs/attractor_2d.png")
+    plot_2d_attractor(embedded, save_path=f"{output_dir}/attractor_2d.png")
     if m >= 3:
-        plot_3d_attractor(embedded, save_path="outputs/attractor_3d.png")
+        plot_3d_attractor(embedded, save_path=f"{output_dir}/attractor_3d.png")
         
-    compute_and_plot_recurrence(embedded[:1000], save_path="outputs/recurrence.png") # limit size for speed
-    plot_regime_segmentation(time_aligned, series_aligned, labels, save_path="outputs/regimes.png")
-    plot_changepoints(time_aligned, series_aligned, cps, save_path="outputs/changepoints.png")
+    compute_and_plot_recurrence(embedded[:1000], save_path=f"{output_dir}/recurrence.png") # limit size for speed
+    plot_regime_segmentation(time_aligned, series_aligned, labels, save_path=f"{output_dir}/regimes.png")
+    plot_changepoints(time_aligned, series_aligned, cps, save_path=f"{output_dir}/changepoints.png")
     
     if use_wandb:
         wandb.log({
-            "attractor_2d": wandb.Image("outputs/attractor_2d.png"),
-            "regimes": wandb.Image("outputs/regimes.png")
+            "attractor_2d": wandb.Image(f"{output_dir}/attractor_2d.png"),
+            "regimes": wandb.Image(f"{output_dir}/regimes.png")
         })
 
     # 8. Dynamics Discovery (SINDy)
@@ -132,14 +188,15 @@ def main():
     # 9. Dynamics Discovery (Neural ODE)
     logger.info("Training Neural ODE...")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print("Using device:", device)
     logger.info(f"Using device: {device}")
     
     # Prepare data for Neural ODE [time, batch, dim]
     y_tensor = torch.tensor(embedded, dtype=torch.float32).unsqueeze(1) # (T, 1, m)
     t_tensor = torch.tensor(np.arange(len(embedded)) * dt, dtype=torch.float32) # (T,)
     
-    ode_func = ODEFunc(input_dim=m, hidden_dim=config['dynamics']['neural_ode']['hidden_dim'])
-    neural_ode = NeuralODE(ode_func, method=config['dynamics']['neural_ode']['solver'])
+    ode_func = ODEFunc(input_dim=m, hidden_dim=config['dynamics']['neural_ode']['hidden_dim'], device=device)
+    neural_ode = NeuralODE(ode_func, method=config['dynamics']['neural_ode']['solver'], device=device)
     
     trained_node = train_neural_ode(
         neural_ode, 
