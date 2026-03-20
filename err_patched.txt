@@ -1,0 +1,21 @@
+2026-03-20 15:46:44,164 - INFO - Downloading real Brent daily data for testing (first 5000 points)...
+2026-03-20 15:46:44,449 - INFO - Applying data preprocessing: log returns and normalization only.
+2026-03-20 15:46:44,449 - INFO - Using parameters: delay (tau) = 10, embedding dimension (m) = 3
+2026-03-20 15:46:44,449 - INFO - Phase space reconstructed. Shape: (4979, 3)
+2026-03-20 15:46:44,449 - INFO - Computing chaos metrics...
+2026-03-20 15:46:47,806 - INFO - Chaos metrics: {'correlation_dimension': 2.614865610762457, 'sample_entropy': 1.7944845847853335, 'largest_lyapunov_exponent': 0.00020389201510904645}
+2026-03-20 15:46:47,806 - INFO - Detecting regimes (HMM)...
+2026-03-20 15:46:48,389 - INFO - Detecting change points (PELT)...
+Traceback (most recent call last):
+  File "C:\Users\mpstme.student\.gemini\antigravity\scratch\regime_analysis_chaotic_systems\main_pipeline.py", line 232, in <module>
+    main()
+  File "C:\Users\mpstme.student\.gemini\antigravity\scratch\regime_analysis_chaotic_systems\main_pipeline.py", line 180, in main
+    plot_regime_segmentation(time_aligned, series_aligned, labels, save_path=f"{output_dir}/regimes.png")
+  File "C:\Users\mpstme.student\.gemini\antigravity\scratch\regime_analysis_chaotic_systems\visualization\phase_diagrams.py", line 31, in plot_regime_segmentation
+    plt.xticks(ticks=np.linspace(time.min(), time.max(), 8), rotation=45)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mpstme.student\AppData\Local\Programs\Python\Python311\Lib\site-packages\numpy\_core\function_base.py", line 164, in linspace
+    y = y * step
+        ~~^~~~~~
+  File "timedeltas.pyx", line 2043, in pandas._libs.tslibs.timedeltas.Timedelta.__mul__
+numpy._core._exceptions._UFuncBinaryResolutionError: ufunc 'multiply' cannot use operands with types dtype('O') and dtype('<m8[ns]')

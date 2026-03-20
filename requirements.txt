@@ -8,7 +8,6 @@ torch>=2.0.0
 torchdiffeq>=0.2.3
 # Chaos & Phase Space
 nolds>=0.5.2
-pyunicorn>=0.6.1
 # Regime Detection
 hmmlearn>=0.3.0
 ruptures>=1.1.8

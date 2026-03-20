@@ -1,6 +1,11 @@
 import numpy as np
+import warnings
+warnings.filterwarnings("ignore")
 
 try:
+    import sys
+    from unittest.mock import MagicMock
+    sys.modules['nolds.datasets'] = MagicMock()
     import nolds
     HAS_NOLDS = True
 except ImportError:
@@ -58,6 +63,7 @@ def get_chaos_metrics(series: np.ndarray, m: int, from_pyunicorn: bool = False) 
             metrics['determinism'] = rp.determinism()
             metrics['laminarity'] = rp.laminarity()
         except ImportError:
+            print("pyunicorn not available, skipping")
             metrics['pyunicorn_error'] = "not installed"
     
     return metrics

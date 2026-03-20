@@ -14,7 +14,7 @@ def train_neural_ode(
     batch_time=10, 
     batch_size=20, 
     epochs=1000, 
-    lr=0.01, 
+    lr=1e-4, 
     test_freq=10,
     device='cpu',
     use_wandb=False
@@ -74,6 +74,11 @@ def train_neural_ode(
             
         # Optimization step
         scaler.scale(loss).backward()
+        
+        # Gradient clipping for Neural ODE stability
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        
         scaler.step(optimizer)
         scaler.update()
         

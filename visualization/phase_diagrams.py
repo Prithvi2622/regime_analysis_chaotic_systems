@@ -17,7 +17,7 @@ def plot_regime_segmentation(time: np.ndarray, series: np.ndarray, regimes: np.n
     unique_regimes = np.unique(regimes)
     colors = plt.cm.get_cmap('tab10', len(unique_regimes))
     
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 5))
     plt.plot(time, series, color='black', alpha=0.7, lw=1)
     
     # Shade backgrounds according to regime
@@ -27,7 +27,14 @@ def plot_regime_segmentation(time: np.ndarray, series: np.ndarray, regimes: np.n
                          color=colors(r), alpha=0.3, label=f'Regime {r}')
                          
     plt.title(title)
-    plt.xlabel("Time")
+    
+    import pandas as pd
+    if hasattr(time, 'dtype') and np.issubdtype(time.dtype, np.datetime64):
+        ticks = pd.date_range(time.min(), time.max(), periods=8)
+    else:
+        ticks = np.linspace(time.min(), time.max(), 8)
+    plt.xticks(ticks=ticks, rotation=45)
+    plt.xlabel("Time (scaled)")
     plt.ylabel("Value")
     # Simplify legend by removing duplicates
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -43,15 +50,21 @@ def plot_changepoints(time: np.ndarray, series: np.ndarray, changepoints: list,
     """
     Plots the time series with dashed vertical lines for detected changepoints.
     """
-    plt.figure(figsize=(12, 6))
-    plt.plot(time, series, color='blue', alpha=0.8, lw=1)
+    plt.figure(figsize=(12, 5))
+    plt.plot(time, series, color='blue', alpha=0.7, lw=1)
     
     for cp in changepoints[:-1]: # Ruptures usually appends the end index, don't plot it
         if cp < len(time):
-            plt.axvline(time[cp], color='red', linestyle='--', alpha=0.8)
+            plt.axvline(time[cp], color='red', linestyle='--', alpha=0.5)
             
     plt.title(title)
-    plt.xlabel("Time")
+    import pandas as pd
+    if hasattr(time, 'dtype') and np.issubdtype(time.dtype, np.datetime64):
+        ticks = pd.date_range(time.min(), time.max(), periods=8)
+    else:
+        ticks = np.linspace(time.min(), time.max(), 8)
+    plt.xticks(ticks=ticks, rotation=45)
+    plt.xlabel("Time (scaled)")
     plt.ylabel("Value")
     
     if save_path:

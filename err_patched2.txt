@@ -1,0 +1,33 @@
+2026-03-20 15:47:43,801 - INFO - Downloading real Brent daily data for testing (first 5000 points)...
+2026-03-20 15:47:43,866 - INFO - Applying data preprocessing: log returns and normalization only.
+2026-03-20 15:47:43,867 - INFO - Using parameters: delay (tau) = 10, embedding dimension (m) = 3
+2026-03-20 15:47:43,867 - INFO - Phase space reconstructed. Shape: (4979, 3)
+2026-03-20 15:47:43,867 - INFO - Computing chaos metrics...
+2026-03-20 15:47:47,153 - INFO - Chaos metrics: {'correlation_dimension': 2.614865610762457, 'sample_entropy': 1.7944845847853335, 'largest_lyapunov_exponent': 0.00020389201510904645}
+2026-03-20 15:47:47,153 - INFO - Detecting regimes (HMM)...
+2026-03-20 15:47:47,923 - INFO - Detecting change points (PELT)...
+2026-03-20 15:47:50,144 - INFO - Discovering dynamics with PySINDy...
+2026-03-20 15:47:50,145 - INFO - Fitting SINDy model with threshold=0.01, degree=3, dt=0.0
+Traceback (most recent call last):
+  File "C:\Users\mpstme.student\.gemini\antigravity\scratch\regime_analysis_chaotic_systems\main_pipeline.py", line 232, in <module>
+    main()
+  File "C:\Users\mpstme.student\.gemini\antigravity\scratch\regime_analysis_chaotic_systems\main_pipeline.py", line 201, in main
+    sindy_model = fit_sparse_dynamics(embedded, t=dt, poly_degree=3, threshold=0.01)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mpstme.student\.gemini\antigravity\scratch\regime_analysis_chaotic_systems\dynamics\sindy_model.py", line 40, in fit_sparse_dynamics
+    model.fit(x, t=float(t))
+  File "C:\Users\mpstme.student\AppData\Local\Programs\Python\Python311\Lib\site-packages\pysindy\_core.py", line 388, in fit
+    x, x_dot, u = _comprehend_and_validate_inputs(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mpstme.student\AppData\Local\Programs\Python\Python311\Lib\site-packages\pysindy\_core.py", line 1139, in _comprehend_and_validate_inputs
+    x = [comprehend_and_validate(xi, ti) for xi, ti in _zip_like_sequence(x, t)]
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mpstme.student\AppData\Local\Programs\Python\Python311\Lib\site-packages\pysindy\_core.py", line 1139, in <listcomp>
+    x = [comprehend_and_validate(xi, ti) for xi, ti in _zip_like_sequence(x, t)]
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mpstme.student\AppData\Local\Programs\Python\Python311\Lib\site-packages\pysindy\_core.py", line 1137, in comprehend_and_validate
+    return validate_no_reshape(arr, t)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mpstme.student\AppData\Local\Programs\Python\Python311\Lib\site-packages\pysindy\utils\base.py", line 86, in validate_no_reshape
+    raise ValueError("t must be positive")
+ValueError: t must be positive

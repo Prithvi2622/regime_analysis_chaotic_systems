@@ -7,7 +7,7 @@ except ImportError:
     HAS_PYSINDY = False
 
 def fit_sparse_dynamics(x: np.ndarray, t: np.ndarray, 
-                        poly_degree: int = 3, threshold: float = 0.1, alpha: float = 0.05):
+                        poly_degree: int = 3, threshold: float = 0.01, alpha: float = 0.05):
     """
     Fit a SINDy model to discover governing equations.
     
@@ -33,6 +33,9 @@ def fit_sparse_dynamics(x: np.ndarray, t: np.ndarray,
     # Instantiate and fit
     model = ps.SINDy(feature_library=library, optimizer=optimizer)
     
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Fitting SINDy model with threshold={threshold}, degree={poly_degree}, dt={t}")
     if isinstance(t, (float, int)):
         model.fit(x, t=float(t))
     else:

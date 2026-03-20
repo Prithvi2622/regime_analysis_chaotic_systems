@@ -1,3 +1,5 @@
+import os
+os.environ["NUMBA_DISABLE_JIT"] = "1"
 import yaml
 import logging
 import pandas as pd
@@ -75,6 +77,7 @@ def get_args():
     parser.add_argument('--convenience_yield', type=float, default=None, help="Override convenience yield.")
     parser.add_argument('--tau', type=int, default=None, help="Override Takens delay tau.")
     parser.add_argument('--embedding_dim', type=int, default=None, help="Override Takens embedding dimension m.")
+    parser.add_argument('--use_returns', action='store_true', help="Use optional returns transformation.")
     return parser.parse_args()
 
 def main():
@@ -96,7 +99,11 @@ def main():
     elif args.test_mode == 'real':
         logger.info("Downloading real Brent daily data for testing (first 5000 points)...")
         df = pd.read_csv("https://raw.githubusercontent.com/datasets/oil-prices/master/data/brent-daily.csv")
-        df = df.rename(columns={'Date': 'time', 'Price': 'price'})
+        df = df.rename(columns={'Price': 'price'})
+        time = pd.to_datetime(df["Date"])
+        time = (time - time.iloc[0]).dt.days.astype(float)
+        assert isinstance(time.iloc[0], float) or isinstance(time.iloc[0], (int, float))
+        df["time"] = time
         df = df.dropna()
         df = df.head(5000).reset_index(drop=True)
     else:
@@ -109,14 +116,16 @@ def main():
         df = load_data(raw_path, time_col=config['data']['time_col'])
     
     # 3. Preprocessing
-    df = compute_log_returns(df, price_col=config['data'].get('target_col', 'price'))
-    signal = df['returns'].values
+    logger.info("Applying data preprocessing: log returns and normalization only.")
+    price = df[config['data'].get('target_col', 'price')]
     
-    # Denoise
-    meth = config['preprocessing']['denoise_method']
-    logger.info(f"Denoising with {meth}")
-    denoised_signal = denoise_signal(signal, method=meth, window_size=config['preprocessing']['window_size'])
-    normalized_signal = normalize_series(denoised_signal)
+    returns = np.diff(np.log(price))
+    returns = pd.Series(returns)
+    returns = (returns - returns.mean()) / returns.std()
+    
+    # Align dataframe
+    df = df.iloc[-len(returns):].copy()
+    normalized_signal = returns.values
     
     # 4. Phase Space Reconstruction
     tau_max = config['phase_space']['tau_max']
@@ -124,12 +133,12 @@ def main():
     
     # Safely load config parameters, fallback to estimation if not provided
     # CLI args override config args, which override estimation
-    tau = args.tau if args.tau is not None else config['phase_space'].get('tau')
+    tau = args.tau if args.tau is not None else 10 # Updated
     if tau is None:
         logger.info("Tau not provided, estimating via Mutual Information...")
         tau = estimate_tau(normalized_signal, tau_max=tau_max)
         
-    m = args.embedding_dim if args.embedding_dim is not None else config['phase_space'].get('embedding_dim')
+    m = args.embedding_dim if args.embedding_dim is not None else 3 # Updated
     if m is None:
         logger.info("Embedding dim not provided, estimating via False Nearest Neighbors...")
         m = estimate_embedding_dim(normalized_signal, tau=tau, m_max=m_max)
@@ -149,14 +158,14 @@ def main():
 
     # 6. Regime Detection
     logger.info("Detecting regimes (HMM)...")
-    hmm = train_hmm(embedded, n_components=config['regime_detection']['n_components'])
+    hmm = train_hmm(embedded, n_components=2)
     labels, probs = predict_regimes(hmm, embedded)
     
-    time_aligned = df['time'].values[-len(labels):]
+    time_aligned = pd.to_datetime(df['time'].values[-len(labels):])
     series_aligned = normalized_signal[-len(labels):]
     
     logger.info("Detecting change points (PELT)...")
-    cps = detect_changepoints_pelt(series_aligned, model_type=config['regime_detection']['cpd_model'])
+    cps = detect_changepoints_pelt(series_aligned, model_type=config['regime_detection']['cpd_model'], pen=10)
     
     # Kaggle Compatibility
     output_dir = "/kaggle/working" if Path("/kaggle/working").exists() else "outputs"
@@ -180,15 +189,24 @@ def main():
     # 8. Dynamics Discovery (SINDy)
     logger.info("Discovering dynamics with PySINDy...")
     dt = time_aligned[1] - time_aligned[0] if len(time_aligned) > 1 else 1.0
-    sindy_model = fit_sparse_dynamics(embedded, t=dt, 
-                                      poly_degree=config['dynamics']['sindy']['polynomial_degree'])
+    if hasattr(dt, 'total_seconds'):
+        dt = dt.total_seconds() / (24*3600)  # converting timedelta to days if it's datetime
+    elif hasattr(dt, 'days'):
+        dt = float(dt.days)
+    else:
+        dt = float(dt)
+        
+    if dt <= 0:
+        dt = 1.0
+            
+    sindy_model = fit_sparse_dynamics(embedded, t=dt, poly_degree=3, threshold=0.01)
     equations = discover_equations(sindy_model)
     logger.info(f"Discovered SINDy equations: {equations}")
 
     # 9. Dynamics Discovery (Neural ODE)
-    logger.info("Training Neural ODE...")
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print("Using device:", device)
+    logger.info("Preparing data to train Neural ODE...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
     logger.info(f"Using device: {device}")
     
     # Prepare data for Neural ODE [time, batch, dim]
