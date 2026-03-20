@@ -7,10 +7,10 @@ def plot_2d_attractor(trajectory: np.ndarray, title="2D Phase Space Attractor", 
     Plots a 2D projection of the attractor.
     """
     plt.figure(figsize=(8, 6))
-    idx = np.arange(0, len(trajectory), 5)
-    embedded_plot = trajectory[idx]
+    idx = np.arange(0, len(trajectory), step=10)
+    embedded_plot = np.clip(trajectory[idx], -5, 5)
     if trajectory.shape[1] >= 2:
-        plt.plot(embedded_plot[:, 0], embedded_plot[:, 1], linewidth=0.8, alpha=0.7)
+        plt.scatter(embedded_plot[:, 0], embedded_plot[:, 1], s=1, alpha=0.5)
     else:
         plt.plot(embedded_plot)
     plt.title(title)
@@ -30,9 +30,9 @@ def plot_3d_attractor(trajectory: np.ndarray, title="3D Phase Space Attractor", 
         
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
-    idx = np.arange(0, len(trajectory), 5)
-    embedded_plot = trajectory[idx]
-    ax.plot(embedded_plot[:, 0], embedded_plot[:, 1], embedded_plot[:, 2], linewidth=0.6, alpha=0.7)
+    idx = np.arange(0, len(trajectory), step=10)
+    embedded_plot = np.clip(trajectory[idx], -5, 5)
+    ax.scatter(embedded_plot[:, 0], embedded_plot[:, 1], embedded_plot[:, 2], s=1, alpha=0.5)
     ax.set_title(title)
     ax.set_xlabel('X1')
     ax.set_ylabel('X2')

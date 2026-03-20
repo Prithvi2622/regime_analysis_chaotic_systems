@@ -13,8 +13,8 @@ def train_neural_ode(
     true_t,
     batch_time=10, 
     batch_size=20, 
-    epochs=1000, 
-    lr=1e-4, 
+    epochs=100, 
+    lr=1e-3, 
     test_freq=10,
     device='cpu',
     use_wandb=False
@@ -32,6 +32,7 @@ def train_neural_ode(
     """
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
     loss_fn = nn.MSELoss()
     scaler = torch.cuda.amp.GradScaler() # Mixed precision training
     
@@ -60,7 +61,7 @@ def train_neural_ode(
         
         return batch_y0, batch_t, batch_y
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(epochs):
         batch_y0, batch_t, batch_y = get_batch()
         
         optimizer.zero_grad()
@@ -81,18 +82,30 @@ def train_neural_ode(
         
         scaler.step(optimizer)
         scaler.update()
+        scheduler.step()
         
         if use_wandb:
             wandb.log({"train_loss": loss.item(), "epoch": epoch})
             
-        if epoch % test_freq == 0:
-            with torch.no_grad():
-                model.eval()
-                full_pred_y = model(true_y[0], true_t)
-                full_loss = loss_fn(full_pred_y, true_y)
-                logger.info(f"Epoch {epoch:04d} | Batch Loss {loss.item():.6f} | Full Trajectory Loss {full_loss.item():.6f}")
-                if use_wandb:
-                    wandb.log({"val_loss": full_loss.item(), "epoch": epoch})
-                model.train()
+        with torch.no_grad():
+            model.eval()
+            full_pred_y = model(true_y[0], true_t)
+            full_loss = loss_fn(full_pred_y, true_y)
+            model.train()
+            
+        if epoch % 10 == 0 or epoch == epochs - 1:
+            logger.info(f"Epoch {epoch:04d} | Batch Loss {loss.item():.6f} | Full Trajectory Loss {full_loss.item():.6f}")
+            if use_wandb:
+                wandb.log({"val_loss": full_loss.item(), "epoch": epoch})
                 
-    return model
+        if 'best_loss' not in locals() or full_loss.item() < best_loss:
+            best_loss = full_loss.item()
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+            
+        if epochs_no_improve >= 10:
+            logger.info(f"Early stopping triggered at epoch {epoch}")
+            break
+                
+    return model, best_loss

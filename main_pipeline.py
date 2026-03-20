@@ -75,9 +75,15 @@ def get_args():
                         help="Run in test mode with fast data (synthetic OU or short real dataset).")
     parser.add_argument('--gamma', type=float, default=None, help="Override risk aversion gamma.")
     parser.add_argument('--convenience_yield', type=float, default=None, help="Override convenience yield.")
-    parser.add_argument('--tau', type=int, default=None, help="Override Takens delay tau.")
-    parser.add_argument('--embedding_dim', type=int, default=None, help="Override Takens embedding dimension m.")
+    parser.add_argument('--tau', type=int, default=5, help="Override Takens delay tau.")
+    parser.add_argument('--embedding_dim', type=int, default=4, help="Override Takens embedding dimension m.")
     parser.add_argument('--use_returns', action='store_true', help="Use optional returns transformation.")
+    parser.add_argument('--sweep', action='store_true', help="Run sweep experiment over tau and m.")
+    parser.add_argument('--experiment', action='store_true', help="Run expanded experiment over tau, m, and epsilon.")
+    parser.add_argument('--epochs', type=int, default=100, help="Training epochs for Neural ODE.")
+    parser.add_argument('--epsilon_percentile', type=float, default=10.0, help="Threshold percentile for recurrence plot.")
+    parser.add_argument('--sindy_threshold', type=float, default=0.02, help="SINDy optimizer threshold.")
+    parser.add_argument('--sindy_degree', type=int, default=3, help="SINDy polynomial degree.")
     return parser.parse_args()
 
 def main():
@@ -122,112 +128,124 @@ def main():
     returns = np.diff(np.log(price))
     returns = pd.Series(returns)
     returns = (returns - returns.mean()) / returns.std()
+    returns = np.clip(returns, -5, 5)
     
     # Align dataframe
     df = df.iloc[-len(returns):].copy()
     normalized_signal = returns.values
     
-    # 4. Phase Space Reconstruction
-    tau_max = config['phase_space']['tau_max']
-    m_max = config['phase_space']['m_max']
-    
-    # Safely load config parameters, fallback to estimation if not provided
-    # CLI args override config args, which override estimation
-    tau = args.tau if args.tau is not None else 10 # Updated
-    if tau is None:
-        logger.info("Tau not provided, estimating via Mutual Information...")
-        tau = estimate_tau(normalized_signal, tau_max=tau_max)
-        
-    m = args.embedding_dim if args.embedding_dim is not None else 3 # Updated
-    if m is None:
-        logger.info("Embedding dim not provided, estimating via False Nearest Neighbors...")
-        m = estimate_embedding_dim(normalized_signal, tau=tau, m_max=m_max)
-        
-    logger.info(f"Using parameters: delay (tau) = {tau}, embedding dimension (m) = {m}")
-    
-    embedded = takens_embedding(normalized_signal, tau=tau, m=m)
-    logger.info(f"Phase space reconstructed. Shape: {embedded.shape}")
-    
-    # 5. Chaos Metrics
-    logger.info("Computing chaos metrics...")
-    metrics = get_chaos_metrics(normalized_signal, m=m, from_pyunicorn=False)
-    lle = compute_largest_lyapunov_exponent(normalized_signal, m=m, tau=tau)
-    metrics['largest_lyapunov_exponent'] = lle
-    logger.info(f"Chaos metrics: {metrics}")
-    if use_wandb: wandb.log(metrics)
-
-    # 6. Regime Detection
-    logger.info("Detecting regimes (HMM)...")
-    hmm = train_hmm(embedded, n_components=2)
-    labels, probs = predict_regimes(hmm, embedded)
-    
-    time_aligned = pd.to_datetime(df['time'].values[-len(labels):])
-    series_aligned = normalized_signal[-len(labels):]
-    
-    logger.info("Detecting change points (PELT)...")
-    cps = detect_changepoints_pelt(series_aligned, model_type=config['regime_detection']['cpd_model'], pen=10)
-    
-    # Kaggle Compatibility
-    output_dir = "/kaggle/working" if Path("/kaggle/working").exists() else "outputs"
-    Path(output_dir).mkdir(exist_ok=True)
-    
-    # 7. Visualization
-    plot_2d_attractor(embedded, save_path=f"{output_dir}/attractor_2d.png")
-    if m >= 3:
-        plot_3d_attractor(embedded, save_path=f"{output_dir}/attractor_3d.png")
-        
-    compute_and_plot_recurrence(embedded[:1000], save_path=f"{output_dir}/recurrence.png") # limit size for speed
-    plot_regime_segmentation(time_aligned, series_aligned, labels, save_path=f"{output_dir}/regimes.png")
-    plot_changepoints(time_aligned, series_aligned, cps, save_path=f"{output_dir}/changepoints.png")
-    
-    if use_wandb:
-        wandb.log({
-            "attractor_2d": wandb.Image(f"{output_dir}/attractor_2d.png"),
-            "regimes": wandb.Image(f"{output_dir}/regimes.png")
-        })
-
-    # 8. Dynamics Discovery (SINDy)
-    logger.info("Discovering dynamics with PySINDy...")
-    dt = time_aligned[1] - time_aligned[0] if len(time_aligned) > 1 else 1.0
-    if hasattr(dt, 'total_seconds'):
-        dt = dt.total_seconds() / (24*3600)  # converting timedelta to days if it's datetime
-    elif hasattr(dt, 'days'):
-        dt = float(dt.days)
+    # 4. Phase Space Configurations
+    import itertools
+    if getattr(args, 'experiment', False):
+        param_grid = list(itertools.product([3, 5, 10], [3, 4, 5], [5.0, 10.0, 20.0]))
+    elif getattr(args, 'sweep', False):
+        param_grid = list(itertools.product([3, 5, 10], [3, 4, 5], [args.epsilon_percentile]))
     else:
-        dt = float(dt)
+        param_grid = [(args.tau, args.embedding_dim, args.epsilon_percentile)]
         
-    if dt <= 0:
-        dt = 1.0
-            
-    sindy_model = fit_sparse_dynamics(embedded, t=dt, poly_degree=3, threshold=0.01)
-    equations = discover_equations(sindy_model)
-    logger.info(f"Discovered SINDy equations: {equations}")
+    for tau, m, ep in param_grid:
+        logger.info(f"--- Running pipeline for tau={tau}, m={m}, epsilon_p={ep} ---")
+        
+        output_dir = f"outputs_tau{tau}_m{m}_ep{ep}" if (getattr(args, 'sweep', False) or getattr(args, 'experiment', False)) else ("/kaggle/working" if Path("/kaggle/working").exists() else "outputs")
+        Path(output_dir).mkdir(exist_ok=True)
+        log_file = f"outputs_tau{tau}_m{m}_ep{ep}.txt" if (getattr(args, 'sweep', False) or getattr(args, 'experiment', False)) else None
 
-    # 9. Dynamics Discovery (Neural ODE)
-    logger.info("Preparing data to train Neural ODE...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-    logger.info(f"Using device: {device}")
-    
-    # Prepare data for Neural ODE [time, batch, dim]
-    y_tensor = torch.tensor(embedded, dtype=torch.float32).unsqueeze(1) # (T, 1, m)
-    t_tensor = torch.tensor(np.arange(len(embedded)) * dt, dtype=torch.float32) # (T,)
-    
-    ode_func = ODEFunc(input_dim=m, hidden_dim=config['dynamics']['neural_ode']['hidden_dim'], device=device)
-    neural_ode = NeuralODE(ode_func, method=config['dynamics']['neural_ode']['solver'], device=device)
-    
-    trained_node = train_neural_ode(
-        neural_ode, 
-        y_tensor, 
-        t_tensor,
-        batch_time=min(config['dynamics']['neural_ode']['batch_time'], len(embedded)),
-        batch_size=config['dynamics']['neural_ode']['batch_size'],
-        epochs=min(20, config['dynamics']['neural_ode']['epochs']), # override config with short epochs for quick test
-        lr=config['dynamics']['neural_ode']['lr'],
-        device=device,
-        use_wandb=use_wandb
-    )
-    logger.info("Pipeline execution complete.")
+        def append_log(text):
+            if log_file:
+                with open(log_file, "a") as lf:
+                    lf.write(text + "\n")
+        
+        embedded = takens_embedding(normalized_signal, tau=tau, m=m)
+        logger.info(f"Phase space reconstructed. Shape: {embedded.shape}")
+        
+        # 5. Chaos Metrics
+        logger.info("Computing chaos metrics...")
+        metrics = get_chaos_metrics(normalized_signal, m=m, from_pyunicorn=False)
+        lle = compute_largest_lyapunov_exponent(normalized_signal, m=m, tau=tau)
+        metrics['largest_lyapunov_exponent'] = lle
+        logger.info(f"Chaos metrics: {metrics}")
+        append_log(f"Chaos metrics: {metrics}")
+        if use_wandb: wandb.log(metrics)
+
+        # 6. Regime Detection
+        logger.info("Detecting regimes (HMM)...")
+        hmm = train_hmm(embedded, n_components=2)
+        labels, probs = predict_regimes(hmm, embedded)
+        
+        time_aligned = pd.to_datetime(df['time'].values[-len(labels):])
+        series_aligned = normalized_signal[-len(labels):]
+        
+        logger.info("Detecting change points (PELT)...")
+        cps = detect_changepoints_pelt(series_aligned, model_type=config['regime_detection']['cpd_model'], pen=10)
+        
+        # 7. Visualization
+        plot_2d_attractor(embedded, save_path=f"{output_dir}/attractor_2d.png")
+        if m >= 3:
+            plot_3d_attractor(embedded, save_path=f"{output_dir}/attractor_3d.png")
+            
+        compute_and_plot_recurrence(embedded[:1000], epsilon_percentile=ep, save_path=f"{output_dir}/recurrence.png")
+        plot_regime_segmentation(time_aligned, series_aligned, labels, save_path=f"{output_dir}/regimes.png")
+        plot_changepoints(time_aligned, series_aligned, cps, save_path=f"{output_dir}/changepoints.png")
+        
+        if use_wandb and not (getattr(args, 'sweep', False) or getattr(args, 'experiment', False)):
+            wandb.log({
+                "attractor_2d": wandb.Image(f"{output_dir}/attractor_2d.png"),
+                "regimes": wandb.Image(f"{output_dir}/regimes.png")
+            })
+
+        # 8. Dynamics Discovery (SINDy)
+        logger.info("Discovering dynamics with PySINDy...")
+        dt = time_aligned[1] - time_aligned[0] if len(time_aligned) > 1 else 1.0
+        if hasattr(dt, 'total_seconds'):
+            dt = dt.total_seconds() / (24*3600)  # converting timedelta to days if it's datetime
+        elif hasattr(dt, 'days'):
+            dt = float(dt.days)
+        else:
+            dt = float(dt)
+            
+        if dt <= 0:
+            dt = 1.0
+                
+        sindy_model = fit_sparse_dynamics(embedded, t=dt, poly_degree=args.sindy_degree, threshold=args.sindy_threshold)
+        equations = discover_equations(sindy_model)
+        logger.info(f"Discovered SINDy equations: {equations}")
+        append_log(f"Discovered SINDy equations: {equations}")
+
+        # 9. Dynamics Discovery (Neural ODE)
+        logger.info("Preparing data to train Neural ODE...")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {device}")
+        logger.info(f"Using device: {device}")
+        
+        # Prepare data for Neural ODE [time, batch, dim]
+        y_tensor = torch.tensor(embedded, dtype=torch.float32).unsqueeze(1).to(device)
+        t_tensor = torch.tensor(np.arange(len(embedded)) * dt, dtype=torch.float32).to(device)
+        
+        ode_func = ODEFunc(input_dim=m, hidden_dim=config['dynamics']['neural_ode']['hidden_dim'], device=device)
+        neural_ode = NeuralODE(ode_func, method=config['dynamics']['neural_ode']['solver'], device=device)
+        
+        trained_node, final_loss = train_neural_ode(
+            neural_ode, 
+            y_tensor, 
+            t_tensor,
+            batch_time=min(config['dynamics']['neural_ode']['batch_time'], len(embedded)),
+            batch_size=config['dynamics']['neural_ode']['batch_size'],
+            epochs=args.epochs,
+            lr=config['dynamics']['neural_ode'].get('lr', 1e-3),
+            device=device,
+            use_wandb=use_wandb and not (getattr(args, 'sweep', False) or getattr(args, 'experiment', False))
+        )
+        append_log(f"Neural ODE training completed for tau={tau}, m={m}, epsilon_p={ep}")
+        logger.info(f"Pipeline execution complete for tau={tau}, m={m}, epsilon_p={ep}.")
+        
+        # Log metrics to results_summary.txt
+        active_terms = np.count_nonzero(sindy_model.coefficients())
+        logger.info(f"SINDy active terms: {active_terms}")
+        with open("results_summary.txt", "a") as f:
+            f.write(f"--- Results for tau={tau}, m={m}, epsilon_p={ep} ---\n")
+            f.write(f"Chaos metrics: {metrics}\n")
+            f.write(f"SINDy active terms: {active_terms}\n")
+            f.write(f"Final ODE Loss: {final_loss}\n\n")
 
 if __name__ == "__main__":
     main()
